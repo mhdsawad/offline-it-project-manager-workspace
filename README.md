@@ -6,9 +6,9 @@ This initiative is intended as a community-friendly productivity tool for projec
 
 > **Download:** Use the latest release asset named `index.html`, or open the live GitHub Pages demo after it is enabled.
 >
-> **GitHub Pages:** `[ADD_GITHUB_PAGES_URL_HERE]`
+> **GitHub Pages:** `https://github.com/daip85/offline-it-project-manager-workspace`
 >
-> **Latest Release:** `[ADD_RELEASE_URL_HERE]`
+> **Latest Release:** `https://github.com/daip85/offline-it-project-manager-workspace`
 
 ---
 
