@@ -801,5 +801,372 @@ initCalc();initResponsiveShell();render();
 })();
 </script>
 
+
+<script>
+/* ============================================================
+   v1.1 Sprint Board Fix + Deep Navigation Stabilization Patch
+   Fixes: selecting a named sprint now filters Kanban cards, sprint
+   callout and burndown to the chosen sprint rather than always using
+   the active sprint. Also resets sprint selection when changing project.
+   ============================================================ */
+(function(){
+  'use strict';
+
+  function sprintMode(){ return state.selectedSprint || 'active'; }
+
+  window.normalizeSprintSelection = function(pid){
+    const sprints = projectSprints(pid);
+    const mode = sprintMode();
+    const legal = ['active','backlog','all'];
+    if(legal.includes(mode)) return mode;
+    if(sprints.some(s => s.id === mode)) return mode;
+    state.selectedSprint = 'active';
+    return 'active';
+  };
+
+  window.selectedSprintForProject = function(pid){
+    const sprints = projectSprints(pid);
+    if(!sprints.length) return null;
+    const mode = normalizeSprintSelection(pid);
+    if(mode === 'all' || mode === 'backlog') return null;
+    if(mode === 'active') return activeSprint(pid) || sprints[0] || null;
+    return sprints.find(s => s.id === mode) || activeSprint(pid) || sprints[0] || null;
+  };
+
+  window.sprintFilterLabel = function(pid){
+    const mode = normalizeSprintSelection(pid);
+    if(mode === 'all') return {title:'All stories', subtitle:'Showing every backlog and sprint story for this project.'};
+    if(mode === 'backlog') return {title:'Product Backlog', subtitle:'Showing stories not yet assigned to a sprint.'};
+    const s = selectedSprintForProject(pid);
+    return s ? {title:s.name, subtitle:`${s.goal || 'No sprint goal defined'} · ${niceDate(s.startDate)} to ${niceDate(s.endDate)} · ${s.status || 'Planned'}`} : {title:'No sprint selected', subtitle:'Create a sprint or choose All stories.'};
+  };
+
+  window.storiesForSprintSelection = function(pid){
+    const mode = normalizeSprintSelection(pid);
+    const all = projectStories(pid);
+    if(mode === 'all') return all;
+    if(mode === 'backlog') return all.filter(s => !s.sprintId);
+    const s = selectedSprintForProject(pid);
+    return s ? all.filter(st => st.sprintId === s.id) : [];
+  };
+
+  function sprintSummaryCards(pid, stories, currentSprint){
+    const total = stories.reduce((a,s)=>a+(+s.points||0),0);
+    const done = stories.filter(s=>s.status==='Done').reduce((a,s)=>a+(+s.points||0),0);
+    const blocked = stories.filter(s=>s.blocked).length;
+    const remaining = Math.max(0,total-done);
+    const burnRisk = currentSprint ? Math.round(sprintMetrics(pid,currentSprint.id).burnRisk) : (total ? Math.round((remaining/Math.max(1,total))*100 + blocked*12) : 0);
+    return `<div class="grid kpi" style="margin-bottom:14px">
+      <div class="card kpiCard"><div class="kpiLabel">Visible Stories</div><div class="kpiValue">${stories.length}</div><div class="kpiSub">Current sprint filter</div></div>
+      <div class="card kpiCard"><div class="kpiLabel">Story Points</div><div class="kpiValue">${total}</div><div class="kpiSub">Filtered scope</div></div>
+      <div class="card kpiCard"><div class="kpiLabel">Done Points</div><div class="kpiValue">${done}</div><div class="kpiSub">Completed in selection</div></div>
+      <div class="card kpiCard"><div class="kpiLabel">Remaining</div><div class="kpiValue">${remaining}</div><div class="kpiSub">Points still open</div></div>
+      <div class="card kpiCard"><div class="kpiLabel">Blocked</div><div class="kpiValue">${blocked}</div><div class="kpiSub">Needs PM action</div></div>
+      <div class="card kpiCard"><div class="kpiLabel">Burn Risk</div><div class="kpiValue">${burnRisk}%</div><div class="kpiSub">Local sprint signal</div></div>
+    </div>`;
+  }
+
+  function renderSprintOptions(pid){
+    const sprints = projectSprints(pid);
+    const mode = normalizeSprintSelection(pid);
+    return `<option value="active" ${mode==='active'?'selected':''}>Active sprint</option>
+      <option value="backlog" ${mode==='backlog'?'selected':''}>Backlog only</option>
+      <option value="all" ${mode==='all'?'selected':''}>All stories</option>
+      ${sprints.map(s=>`<option value="${s.id}" ${mode===s.id?'selected':''}>${esc(s.name)} · ${esc(s.status||'')}</option>`).join('')}`;
+  }
+
+  window.renderScrumView = function(p){
+    if(!canScrum(p)) return notApplicable('Sprint Board is only used for Agile Scrum / Time & Material and Hybrid projects.','Use Fixed Plan / Gantt for this fixed-bid project.');
+    normalizeSprintSelection(p.id);
+    const currentSprint = selectedSprintForProject(p.id);
+    const label = sprintFilterLabel(p.id);
+    const stories = storiesForSprintSelection(p.id);
+    const allStories = projectStories(p.id);
+    const filterMode = sprintMode();
+    return `<div class="stickyActions"><div class="btnRow">
+      <button class="btn primary" onclick="openStoryModal()">+ Add User Story</button>
+      <button class="btn" onclick="openSprintModal()">+ Create Sprint</button>
+      <select class="select" style="width:300px" data-tip="Choose Active sprint, Backlog, All stories, or a specific sprint. The board, cards, counts and burndown will refresh for this selection." onchange="state.selectedSprint=this.value;render()">${renderSprintOptions(p.id)}</select>
+      ${currentSprint?`<button class="btn" onclick="openSprintModal('${currentSprint.id}')">Edit Selected Sprint</button>`:''}
+      <button class="btn" onclick="printProjectChartsPDF()">Download Sprint Charts PDF</button>
+    </div></div>
+    <div class="callout" style="margin-bottom:16px"><div class="calloutIcon">▥</div><div><b>${esc(label.title)}</b><div class="hint">${esc(label.subtitle)} ${filterMode==='all'?`Total project stories: ${allStories.length}.`:''}</div></div></div>
+    ${sprintSummaryCards(p.id, stories, currentSprint)}
+    <div class="grid two" style="margin-bottom:16px">
+      <div class="card"><div class="cardTitle"><h3>${filterMode==='all'?'All Stories Summary':'Sprint Burndown'}</h3><span class="eyebrow">${filterMode==='backlog'?'Backlog view':'Ideal vs current'}</span></div><div id="chartBurndown" class="chartBox"></div></div>
+      <div class="card"><div class="cardTitle"><h3>Velocity</h3><span class="eyebrow">Completed story points by sprint</span></div><div id="chartVelocity" class="chartBox"></div></div>
+    </div>
+    ${stories.length?`<div class="kanban">${STORY_STATUSES.map(col=>`<div class="kanbanCol" ondragover="event.preventDefault()" ondrop="dropStory(event,'${col}')"><div class="kanbanHead"><h4>${col}</h4><span class="badge bGray">${stories.filter(s=>s.status===col).length}</span></div>${stories.filter(s=>s.status===col).map(renderStoryCard).join('')}</div>`).join('')}</div>`:`<div class="empty"><div class="emptyIcon">▥</div><h3>No stories in this selection</h3><p>${filterMode==='backlog'?'The backlog is empty. Add a story or move a sprint story back to backlog.':filterMode==='all'?'No user stories exist for this project yet.':'This sprint has no assigned stories yet. Add a story or edit an existing story and select this sprint.'}</p><button class="btn primary" onclick="openStoryModal()">Add User Story</button></div>`}`;
+  };
+
+  window.openProject = openProject = function(id,preferred){
+    state.projectId = id;
+    state.selectedSprint = 'active';
+    state.view = preferred || 'cockpit';
+    render();
+  };
+
+  window.selectProjectFromTop = selectProjectFromTop = function(pid){
+    if(!pid){ state.projectId=null; state.view='summary'; state.selectedSprint='active'; render(); return; }
+    state.projectId = pid;
+    state.selectedSprint = 'active';
+    if(['summary','register','masters','help','appendix','whitepaper'].includes(state.view)) state.view='cockpit';
+    render();
+  };
+
+  window.openStoryModal = openStoryModal = function(sid){
+    const p=getP(); if(!p) return;
+    const current = selectedSprintForProject(p.id);
+    const defaultSprintId = (!sid && sprintMode()!=='backlog' && sprintMode()!=='all' && current) ? current.id : '';
+    const s=sid?db.stories.find(x=>x.id===sid):{projectId:p.id,title:'',epic:'',points:3,status:defaultSprintId?'To Do':'Backlog',priority:'Medium',assignee:'',sprintId:defaultSprintId,blocked:false,linkedTaskId:''};
+    state.editing=sid||null;
+    const tasks=projectTasks(p.id).filter(t=>t.type!=='Summary');
+    openModal(sid?'Edit User Story':'Add User Story',`<div class="field"><label>User Story / Card Title</label><input class="input" id="storyTitle" value="${esc(s.title)}" placeholder="As a user I want..."></div><div class="formGrid three" style="margin-top:12px"><div class="field"><label>Epic / Feature</label><input class="input" id="storyEpic" value="${esc(s.epic)}"></div><div class="field"><label>Story Points</label><input class="input" type="number" id="storyPts" value="${+s.points||0}"></div><div class="field"><label>Status</label><select class="select" id="storyStatus">${STORY_STATUSES.map(x=>`<option ${s.status===x?'selected':''}>${x}</option>`).join('')}</select></div></div><div class="formGrid" style="margin-top:12px"><div class="field"><label>Sprint</label><select class="select" id="storySprint"><option value="">Backlog / No sprint</option>${projectSprints(p.id).map(sp=>`<option value="${sp.id}" ${s.sprintId===sp.id?'selected':''}>${esc(sp.name)} · ${esc(sp.status||'')}</option>`).join('')}</select></div><div class="field"><label>Assignee</label><select class="select" id="storyAssignee"><option value="">Unassigned</option>${db.resources.map(r=>`<option value="${r.id}" ${s.assignee===r.id?'selected':''}>${esc(r.name)} - ${esc(r.designation)}</option>`).join('')}</select></div></div><div class="formGrid" style="margin-top:12px"><div class="field"><label>Priority</label><select class="select" id="storyPriority">${['Critical','High','Medium','Low'].map(x=>`<option ${s.priority===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>${p.mode===MODE_HYBRID?'Link to WBS Deliverable':'Link to task (optional)'}</label><select class="select" id="storyTask"><option value="">No link</option>${tasks.map(t=>`<option value="${t.id}" ${s.linkedTaskId===t.id?'selected':''}>${esc(t.wbs)} - ${esc(t.name)}</option>`).join('')}</select></div></div><div class="field" style="margin-top:12px"><label><input type="checkbox" id="storyBlocked" ${s.blocked?'checked':''}> Blocked</label></div><div class="callout" style="margin-top:14px"><div class="calloutIcon">▥</div><div class="hint"><b>Tip:</b> When you add a story from a selected sprint, that sprint is preselected. Choose Backlog / No sprint if the story is not ready for sprint planning.</div></div>`,`<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveStoryModal()">Save Story</button>`);
+  };
+
+  window.dropStory = dropStory = function(e,status){
+    const sid=e.dataTransfer.getData('text/plain');
+    const s=db.stories.find(x=>x.id===sid);
+    if(s){
+      s.status=status;
+      const current=selectedSprintForProject(s.projectId);
+      if(current && sprintMode()!=='all' && sprintMode()!=='backlog' && !s.sprintId) s.sprintId=current.id;
+      saveDB();toast('Story moved to '+status,'ok');render();
+    }
+  };
+
+  function renderSprintFilterChart(p){
+    const el=document.getElementById('chartBurndown'); if(!el) return;
+    const mode = normalizeSprintSelection(p.id);
+    if(mode==='all'){
+      const stories=projectStories(p.id);
+      drawStacked('chartBurndown','All Stories Workflow',['Backlog','To Do','In Progress','In Review','Done'],[{name:'Stories',color:cssVar('--primary'),data:STORY_STATUSES.map(st=>stories.filter(s=>s.status===st).length)},{name:'Points',color:cssVar('--accent'),data:STORY_STATUSES.map(st=>stories.filter(s=>s.status===st).reduce((a,s)=>a+(+s.points||0),0))}]);
+      return;
+    }
+    if(mode==='backlog'){
+      const stories=projectStories(p.id).filter(s=>!s.sprintId);
+      if(!stories.length){el.innerHTML='<div class="empty"><h3>No backlog stories</h3><p>Backlog is empty for this project.</p></div>';return;}
+      const epics=[...new Set(stories.map(s=>s.epic||'General'))];
+      drawHorizontalBar('chartBurndown','Backlog Points by Epic',epics,epics.map(ep=>stories.filter(s=>(s.epic||'General')===ep).reduce((a,s)=>a+(+s.points||0),0)),'Story points');
+      return;
+    }
+    const sprint=selectedSprintForProject(p.id);
+    if(sprint) drawBurndown('chartBurndown',p,sprint);
+    else el.innerHTML='<div class="empty"><h3>No sprint selected</h3><p>Create a sprint or choose All stories.</p></div>';
+  }
+
+  const previousDrawChartsForView = drawChartsForView;
+  window.drawChartsForView = drawChartsForView = function(){
+    previousDrawChartsForView();
+    if(state.view==='scrum'){
+      const p=getP(); if(!p) return;
+      renderSprintFilterChart(p);
+      if(document.getElementById('chartVelocity')) drawVelocity('chartVelocity',p);
+    }
+  };
+
+  window.afterRender = afterRender = function(){
+    if(state.view==='gantt') drawGantt();
+    drawChartsForView();
+  };
+
+  function ensureSprintSampleVariety(){
+    try{
+      if(db.__sprintFilterPatchApplied) return;
+      const sample=db.projects.find(p=>p.name==='Customer Mobile App');
+      if(!sample){db.__sprintFilterPatchApplied=true;saveDB();return;}
+      const sprints=projectSprints(sample.id);
+      const planned=sprints.find(s=>/Sprint 13/i.test(s.name)) || sprints.find(s=>s.status==='Planned');
+      if(planned && !db.stories.some(st=>st.projectId===sample.id && st.sprintId===planned.id)){
+        const team=projectResources(sample.id);
+        db.stories.push(
+          {id:id('story'),projectId:sample.id,sprintId:planned.id,epic:'Payments',title:'As a customer I can validate card payment before order confirmation',points:8,status:'To Do',priority:'High',assignee:team[1]?.id||team[0]?.id||'',linkedTaskId:'',blocked:false},
+          {id:id('story'),projectId:sample.id,sprintId:planned.id,epic:'Notifications',title:'As a customer I receive order status notifications',points:5,status:'Backlog',priority:'Medium',assignee:team[2]?.id||team[0]?.id||'',linkedTaskId:'',blocked:false}
+        );
+      }
+      db.__sprintFilterPatchApplied=true;saveDB();
+    }catch(e){console.warn('Sprint sample variety patch skipped',e)}
+  }
+  ensureSprintSampleVariety();
+
+  render();
+})();
+</script>
+
+<style>
+/* v1.2 deep fixes: responsive Gantt, larger reports, exportable charts */
+body.final-v4 .projectSelectBox{min-width:340px;max-width:500px}
+body.final-v4 .projectSelect{font-size:11.5px}
+body.final-v4 .ganttShell.ganttFixed{grid-template-columns:minmax(650px,42vw) minmax(900px,1fr);min-height:560px;max-height:74vh;border-radius:16px;overflow:hidden;box-shadow:var(--shadow2)}
+body.final-v4 .ganttShell.ganttFixed .ganttTable{min-width:0!important;width:100%;max-height:74vh;overflow:auto;border-right:1px solid var(--line);background:var(--panel);z-index:3}
+body.final-v4 .ganttShell.ganttFixed .ganttTimeline{max-height:74vh;overflow:auto;min-width:0;background:linear-gradient(180deg,var(--panel),var(--panel2))}
+body.final-v4 .ganttShell.ganttFixed .ganttHeader{height:54px;min-height:54px;position:sticky;top:0;z-index:5;background:var(--panel3);border-bottom:1px solid var(--line)}
+body.final-v4 .ganttShell.ganttFixed .wbsCell{height:38px;min-height:38px;display:grid;grid-template-columns:56px minmax(230px,1fr) 52px 72px 72px 58px 54px 54px;align-items:center;gap:7px;border-bottom:1px solid var(--line);font-size:10.8px;padding:0 10px;white-space:nowrap;background:var(--panel)}
+body.final-v4 .ganttShell.ganttFixed .wbsCell.header{height:54px;min-height:54px;position:sticky;top:0;z-index:6;background:var(--panel3);font-size:9px;color:var(--muted);font-weight:950;text-transform:uppercase;letter-spacing:.65px}
+body.final-v4 .ganttShell.ganttFixed .wbsName{overflow:hidden;text-overflow:ellipsis;min-width:0;display:block}
+body.final-v4 .ganttShell.ganttFixed .input.percentInput{width:52px;height:24px!important;min-height:24px!important;padding:0 4px!important;font-size:10.5px!important;text-align:center;border-radius:9px}
+body.final-v4 .ganttShell.ganttFixed .wbsAction{opacity:.55;justify-self:end}.ganttShell.ganttFixed .wbsCell:hover .wbsAction{opacity:1}
+body.final-v4 .ganttLegend{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:11px;color:var(--muted);margin:8px 0 12px}.legendKey{display:inline-flex;align-items:center;gap:5px}.legendSwatch{width:22px;height:8px;border-radius:99px;display:inline-block}.legendLine{width:22px;height:0;border-top:2px dashed var(--muted);display:inline-block}
+body.final-v4 .dateHelp{font-size:11px;color:var(--muted);margin-top:5px;line-height:1.45}
+body.final-v4 .reportHeroV12{grid-template-columns:1.35fr .65fr;align-items:stretch}.reportNote{border-left:4px solid var(--primary);padding:10px 12px;background:color-mix(in srgb,var(--primary) 6%,var(--panel));border-radius:12px;font-size:11.5px;color:var(--muted);line-height:1.55;margin-top:12px}
+body.final-v4 .projectReportV12{grid-template-columns:repeat(auto-fit,minmax(min(100%,430px),1fr));gap:16px;margin-top:14px}.projectReportV12 .reportChartCard{padding:0;overflow:hidden;border-radius:17px}.projectReportV12 .reportChartCard.wide{grid-column:span 2}.projectReportV12 .cardTitle{padding:13px 14px;margin:0;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--panel3) 58%,var(--panel))}.projectReportV12 .cardTitle h3{font-size:12px}.projectReportV12 .chartBox{height:405px;min-height:405px;border:0;border-radius:0;background:var(--panel);padding:8px}.chartActions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.chartActions .btn{min-height:26px;font-size:10px;padding:0 8px;border-radius:9px}.projectReportV12 .chartSvg{height:100%;min-height:310px;max-height:none}.projectReportV12 .empty{min-height:220px;display:grid;place-items:center}
+body.final-v4 .downloadBar{display:flex;gap:7px;flex-wrap:wrap;align-items:center}.downloadBar .btn{font-size:10.5px;min-height:30px;border-radius:10px}
+@media(max-width:1200px){body.final-v4 .ganttShell.ganttFixed{grid-template-columns:1fr;overflow:auto}body.final-v4 .ganttShell.ganttFixed .ganttTable{border-right:0;border-bottom:1px solid var(--line);max-height:360px}body.final-v4 .ganttShell.ganttFixed .ganttTimeline{max-height:520px;min-width:900px}body.final-v4 .projectReportV12 .reportChartCard.wide{grid-column:span 1}body.final-v4 .reportHeroV12{grid-template-columns:1fr}}
+@media(max-width:760px){body.final-v4 .projectSelectBox{min-width:0;max-width:none}body.final-v4 .ganttShell.ganttFixed .wbsCell{grid-template-columns:50px minmax(180px,1fr) 44px 66px 66px 52px 46px 48px;font-size:10px;padding:0 7px}body.final-v4 .projectReportV12 .chartBox{height:350px;min-height:350px}.projectReportV12{grid-template-columns:1fr}.downloadBar{width:100%}}
+</style>
+<script>
+(function(){
+  const REPORT_CHARTS_V12=[['chartProjectGauge','work-completion-gauge'],['chartProjectHealth','delivery-health-trend'],['chartPMBOKRadar','pmbok-radar'],['chartCostCurveProject','cost-curve'],['chartBudget2','budget-category'],['chartBudgetWaterfallProject','budget-waterfall'],['chartWorkStatus','work-status'],['chartFlowStack','workflow-stack'],['chartResource','team-capacity'],['chartResourceTreemapProject','team-cost-treemap'],['chartTeamBubble','team-load-bubble'],['chartRiskBars','risk-score-bars'],['chartRiskHeatmapProject','risk-heatmap'],['chartRiskBubbleProject','risk-bubble'],['chartIssueAging','issue-aging'],['chartQualityTrend','quality-trend'],['chartFloat','critical-path-float'],['chartTaskDurationLollipop','task-duration'],['chartDependencyNetwork','dependency-network'],['chartMilestoneTimeline','milestone-timeline'],['chartSprintBurndownReport','sprint-burndown'],['chartSprintBurnupReport','sprint-burnup'],['chartVelocityReport','velocity'],['chartCumulativeFlowReport','cumulative-flow'],['chartGovernanceCompliance','governance-compliance'],['chartProgressRadar','project-control-radar']];
+  window.REPORT_CHARTS_V12=REPORT_CHARTS_V12;
+  function safeNameV12(s){return String(s||'chart').replace(/[^a-z0-9]+/gi,'_').replace(/^_+|_+$/g,'').slice(0,80)||'chart'}
+  function shortDateV12(d){if(!d)return '-';const dt=new Date(String(d)+'T00:00:00');return isNaN(dt)?'-':dt.toLocaleDateString(undefined,{month:'short',day:'2-digit'}).replace(',','')}
+  function chartCardV12(id,title,wide){return `<div class="card reportChartCard ${wide?'wide':''}"><div class="cardTitle"><h3>${esc(title)}</h3><div class="chartActions"><button class="btn sm" onclick="downloadChartPng('${id}','${safeNameV12(title)}')">PNG</button><button class="btn sm" onclick="downloadChartSvg('${id}','${safeNameV12(title)}')">SVG</button></div></div><div id="${id}" class="chartBox"></div></div>`}
+  window.svgWrap=svgWrap=function(inner,w=560,h=260){return `<svg class="chartSvg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" role="img">${inner}</svg>`};
+
+  /* Selecting a project from top dropdown now always opens the selected project cockpit. */
+  window.selectProjectFromTop=selectProjectFromTop=function(pid){
+    if(!pid){state.projectId=null;state.selectedSprint='active';state.view='summary';render();return;}
+    state.projectId=pid;state.selectedSprint='active';state.view='cockpit';render();
+    setTimeout(()=>document.getElementById('content')?.scrollTo?.({top:0,behavior:'smooth'}),0);
+  };
+  window.openProject=openProject=function(id,preferred){state.projectId=id;state.selectedSprint='active';state.view=preferred||'cockpit';render();};
+
+  /* Progress is work completion; health is delivery confidence. If all project work is 100%, reports should reflect completion clearly. */
+  window.projectMetrics=projectMetrics=function(p){
+    scheduleProject(p.id,false);
+    const tasks=projectTasks(p.id).filter(t=>t.type!=='Summary'),stories=projectStories(p.id),budgets=projectBudgets(p.id),risks=projectRisks(p.id);
+    const progressTasks=tasks.length?tasks.reduce((s,t)=>s+(+t.percent||0),0)/tasks.length:0;
+    const storyPts=stories.reduce((s,x)=>s+(+x.points||0),0),donePts=stories.filter(s=>s.status==='Done').reduce((a,s)=>a+(+s.points||0),0);
+    const progressStories=storyPts?donePts/storyPts*100:(canScrum(p)&&!tasks.length?0:100);
+    let progress=canGantt(p)&&canScrum(p)?(progressTasks+progressStories)/2:canGantt(p)?progressTasks:progressStories;
+    if(!canScrum(p)&&!tasks.length)progress=0;
+    const planned=budgets.reduce((a,b)=>a+(+b.planned||0),0)||(+p.budget||0),actual=budgets.reduce((a,b)=>a+(+b.actual||0),0),forecast=budgets.reduce((a,b)=>a+(+b.forecast||0),0)||planned;
+    const elapsed=p.startDate&&p.endDate?clamp((toDay(today())-toDay(p.startDate)+1)/durDays(p.startDate,p.endDate),0,1):0;
+    const pv=planned*elapsed,ev=planned*(progress/100),spi=pv?ev/pv:1,cpi=actual?ev/actual:1;
+    const openRisks=risks.filter(r=>r.status!=='Closed'&&r.status!=='Mitigated'),critical=tasks.filter(t=>t.critical),overdue=tasks.filter(t=>t.finishDate<today()&&(+t.percent||0)<100);
+    let health=100;
+    if(progress>=99.5) health=100;
+    else{
+      health-=Math.max(0,(1-spi))*26;health-=Math.max(0,(1-cpi))*24;health-=Math.max(0,(forecast-planned)/Math.max(1,planned))*18;
+      health-=openRisks.filter(r=>(+r.prob||0)*(+r.impact||0)>=12).length*6;health-=overdue.length*7;
+      if(canScrum(p)){const s=activeSprint(p.id);if(s)health-=Math.max(0,sprintMetrics(p.id,s.id).burnRisk-55)*.16;}
+      health=clamp(Math.round(health),0,100);
+    }
+    return {progress,planned,actual,forecast,pv,ev,spi,cpi,openRisks,critical,overdue,health,storyPts,donePts};
+  };
+
+  /* Gantt layout: fixed task table + timeline, same row/header heights, export buttons. */
+  window.renderGanttView=renderGanttView=function(p){
+    if(!canGantt(p))return notApplicable('Fixed Plan / Gantt is only used for Fixed Bid / Waterfall and Hybrid projects.','Use the Sprint Board for this Agile Scrum project.');
+    if(!state.ganttZoom)state.ganttZoom='week';scheduleProject(p.id,false);const tasks=projectTasks(p.id);
+    const zoomBtn=z=>`<button class="btn ${state.ganttZoom===z?'primary':''}" onclick="state.ganttZoom='${z}';render()">${z==='day'?'Day':z==='week'?'Week':'Month'}</button>`;
+    return `<div class="stickyActions"><div class="btnRow"><button class="btn primary" onclick="openTaskModal()">+ Add WBS Task</button><button class="btn" onclick="saveBaseline('${p.id}')">Save Baseline</button><button class="btn" onclick="state.showBaseline=!state.showBaseline;render()">${state.showBaseline?'Hide':'Show'} Baseline</button>${zoomBtn('day')}${zoomBtn('week')}${zoomBtn('month')}<button class="btn" onclick="downloadGanttImage()">Download Gantt PNG</button><button class="btn" onclick="printGanttPDF()">Download Gantt PDF</button></div></div><div class="callout" style="margin-bottom:12px"><div class="calloutIcon">▤</div><div><b>Automated scheduling engine enabled</b><div class="hint">Use WBS tasks, milestones, FS/SS/FF/SF dependencies, lead/lag, CPM float and baseline comparison. Dates may move later when dependency rules require it.</div></div></div><div class="ganttLegend"><span class="legendKey"><span class="legendSwatch" style="background:var(--primary)"></span>Live task</span><span class="legendKey"><span class="legendSwatch" style="background:var(--danger)"></span>Critical path</span><span class="legendKey"><span class="legendSwatch" style="background:var(--accent);opacity:.45"></span>Baseline</span><span class="legendKey"><span class="legendLine"></span>Dependency</span><span class="legendKey">Double-click row or bar to edit</span></div>${tasks.length?`<div class="ganttShell ganttFixed" id="ganttShell"><div class="ganttTable" id="ganttTablePane"><div class="wbsCell header"><span>WBS</span><span>Task</span><span>Dur</span><span>Start</span><span>Finish</span><span>%</span><span>Float</span><span>Edit</span></div><div id="ganttLeftRows">${tasks.map(t=>renderWbsRow(t)).join('')}</div></div><div class="ganttTimeline" id="ganttTimelinePane"><div class="ganttHeader" id="ganttHeader"></div><div id="ganttSvgHost"></div></div></div>`:`<div class="empty"><div class="emptyIcon">▤</div><h3>No WBS tasks yet</h3><p>Create summary tasks, tasks, milestones, dependencies and baseline dates for this project.</p><button class="btn primary" onclick="openTaskModal()">Create first task</button></div>`}`;
+  };
+  window.renderWbsRow=renderWbsRow=function(t){const pad=calcLevel(t.wbs)*15,crit=t.critical?'criticalText':'',pct=+t.percent||0;return `<div class="wbsCell ${t.critical?'criticalText':''}" ondblclick="openTaskModal('${t.id}')" title="Double-click to edit"><span class="mono">${esc(t.wbs)}</span><span class="wbsName ${t.type==='Summary'?'taskSummary':''} ${t.type==='Milestone'?'taskMilestone':''}" style="padding-left:${pad}px">${t.type==='Milestone'?'◆ ':t.type==='Summary'?'▾ ':''}${esc(t.name)}</span><span class="mono">${t.duration}d</span><span class="mono">${shortDateV12(t.startDate)}</span><span class="mono">${shortDateV12(t.finishDate)}</span><input class="input percentInput" type="number" min="0" max="100" value="${pct}" onchange="updateTaskPercent('${t.id}',this.value)"><span class="mono ${crit}">${t.type==='Summary'?'--':(t.float??0)+'d'}</span><button class="btn sm wbsAction" onclick="event.stopPropagation();openTaskModal('${t.id}')">Edit</button></div>`};
+  const baseDrawGantt=drawGantt;
+  window.drawGantt=drawGantt=function(){baseDrawGantt();const svg=document.getElementById('ganttSvg');if(svg){svg.querySelectorAll('.dragbar').forEach(el=>el.addEventListener('dblclick',e=>{const id=e.target.dataset.taskid;if(id)openTaskModal(id)}));}syncGanttScrollV12();};
+  window.syncGanttScrollV12=function(){const l=document.getElementById('ganttTablePane'),r=document.getElementById('ganttTimelinePane');if(!l||!r)return;let lock=false;l.onscroll=function(){if(lock)return;lock=true;r.scrollTop=l.scrollTop;lock=false};r.onscroll=function(){if(lock)return;lock=true;l.scrollTop=r.scrollTop;lock=false};};
+
+  /* Date handling fix: Start + Finish are authoritative, duration recalculates from them before scheduling. */
+  window.syncTaskDateFields=function(src){
+    const s=document.getElementById('taskStart'),f=document.getElementById('taskFinish'),d=document.getElementById('taskDur'),typ=document.getElementById('taskType');
+    if(!s||!f||!d)return;let st=s.value,fi=f.value,dur=Math.max(1,+d.value||1);
+    if(typ&&typ.value==='Milestone'){if(st)f.value=st;d.value=1;return;}
+    if(src==='dates'&&st&&fi){if(toDay(fi)<toDay(st)){fi=st;f.value=fi;}d.value=durDays(st,fi);return;}
+    if(src==='duration'&&st)f.value=dateAdd(st,dur-1);
+  };
+  window.openTaskModal=openTaskModal=function(tid){
+    const p=getP();if(!p)return;
+    const t=tid?db.tasks.find(x=>x.id===tid):{projectId:p.id,type:'Task',wbs:nextWbs(p.id),duration:5,startDate:p.startDate||today(),finishDate:dateAdd(p.startDate||today(),4),percent:0,depText:'',plannedCost:0,actualCost:0};
+    state.editing=tid||null;
+    openModal(tid?'Edit WBS Task':'Add WBS Task',`<div class="formGrid three"><div class="field"><label>WBS</label><input class="input" id="taskWbs" value="${esc(t.wbs)}"></div><div class="field"><label>Task Type</label><select class="select" id="taskType" onchange="syncTaskDateFields('duration')">${TASK_TYPES.map(x=>`<option ${t.type===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Duration days</label><input class="input" type="number" min="1" id="taskDur" value="${t.duration||1}" onchange="syncTaskDateFields('duration')"></div></div><div class="field" style="margin-top:12px"><label>Task / Deliverable Name</label><input class="input" id="taskName" value="${esc(t.name||'')}"></div><div class="formGrid three" style="margin-top:12px"><div class="field"><label>Start Date</label><input class="input" type="date" id="taskStart" value="${t.startDate||today()}" onchange="syncTaskDateFields('dates')"><div class="dateHelp">Changing dates recalculates duration.</div></div><div class="field"><label>Finish Date</label><input class="input" type="date" id="taskFinish" value="${t.finishDate||dateAdd(t.startDate||today(),(+t.duration||1)-1)}" onchange="syncTaskDateFields('dates')"><div class="dateHelp">Dependency logic can move this later.</div></div><div class="field"><label>% Complete</label><input class="input" type="number" min="0" max="100" id="taskPct" value="${+t.percent||0}"></div></div><div class="formGrid" style="margin-top:12px"><div class="field"><label>Assign To</label><select class="select" id="taskAssignee"><option value="">Unassigned</option>${db.resources.map(r=>`<option value="${r.id}" ${(t.assignee||'')===r.id?'selected':''}>${esc(r.name)} - ${esc(r.designation)}</option>`).join('')}</select></div><div class="field"><label>Quick add resource name</label><input class="input" id="taskNewRes" placeholder="Type new resource name if not in master"></div></div><div class="formGrid" style="margin-top:12px"><div class="field"><label>Dependencies: WBS + type + lag</label><input class="input" id="taskDeps" value="${esc(t.depText||'')}" placeholder="Examples: 1.1FS+0, 2.3SS+2, 3FF-1"><div class="dateHelp">Clear dependencies if you want fully manual dates.</div></div><div class="field"><label>Custom Field / Notes</label><input class="input" id="taskCustom" value="${esc(t.custom||'')}" placeholder="Deliverable, phase, approval, vendor, etc."></div></div><div class="formGrid" style="margin-top:12px"><div class="field"><label>Planned Task Cost</label><input class="input" type="number" id="taskPlanned" value="${+t.plannedCost||0}"></div><div class="field"><label>Actual Task Cost</label><input class="input" type="number" id="taskActual" value="${+t.actualCost||0}"></div></div><div class="callout" style="margin-top:14px"><div class="calloutIcon">↔</div><div class="hint"><b>Scheduling behavior:</b> Start/Finish create the duration. The scheduling engine then applies FS, SS, FF and SF dependency rules with lead/lag. If a predecessor forces a later date, the tool will show a message after save.</div></div>`,`<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveTaskModal()">Save and Recalculate</button>`);
+  };
+  window.saveTaskModal=saveTaskModal=function(){
+    const p=getP();let ass=document.getElementById('taskAssignee').value;const newRes=document.getElementById('taskNewRes').value.trim();
+    if(newRes){const rid=id('res');db.resources.push({id:rid,name:newRes,designation:'Team Member',location:p.location||'',rate:0,capacity:100,skills:''});if(!p.resourceIds)p.resourceIds=[];p.resourceIds.push(rid);ass=rid;}
+    const type=document.getElementById('taskType').value;let start=document.getElementById('taskStart').value,finish=document.getElementById('taskFinish').value,dur=Math.max(1,+document.getElementById('taskDur').value||1);
+    if(type==='Milestone'){finish=start;dur=1;}else if(start&&finish){if(toDay(finish)<toDay(start))finish=start;dur=durDays(start,finish);}else if(start&&!finish){finish=dateAdd(start,dur-1);}else if(!start&&finish){start=dateAdd(finish,1-dur);}
+    const obj={projectId:p.id,wbs:document.getElementById('taskWbs').value.trim(),type,name:document.getElementById('taskName').value.trim(),duration:dur,startDate:start,finishDate:finish,percent:clamp(document.getElementById('taskPct').value,0,100),assignee:ass,depText:document.getElementById('taskDeps').value.trim(),custom:document.getElementById('taskCustom').value.trim(),plannedCost:+document.getElementById('taskPlanned').value||0,actualCost:+document.getElementById('taskActual').value||0};
+    if(!obj.name||!obj.wbs){toast('WBS and task name are required','err');return;}
+    if(state.editing){Object.assign(db.tasks.find(t=>t.id===state.editing),obj);}else{db.tasks.push({id:id('tsk'),...obj});}
+    const requestedStart=obj.startDate,requestedFinish=obj.finishDate;scheduleProject(p.id,true);
+    const saved=db.tasks.find(t=>t.projectId===p.id&&t.wbs===obj.wbs&&t.name===obj.name);
+    closeModal();
+    if(saved&&obj.depText&&(saved.startDate!==requestedStart||saved.finishDate!==requestedFinish))toast('Task saved. Dependency rules adjusted dates to '+shortDateV12(saved.startDate)+' - '+shortDateV12(saved.finishDate)+'.','ok');
+    else toast('Task saved and schedule recalculated','ok');
+    render();
+  };
+
+  function qualityScoreV12(p){const tasks=projectTasks(p.id).filter(t=>t.type!=='Summary'),done=tasks.filter(t=>+t.percent>=100).length,riskPenalty=projectRisks(p.id).filter(r=>/quality|defect|test/i.test((r.category||'')+' '+(r.title||''))).length*8;return Math.round(clamp(done/Math.max(1,tasks.length)*100-riskPenalty,0,100));}
+  function governanceScoreV12(p){return (projectBudgets(p.id).length?20:0)+(projectRisks(p.id).length?20:0)+(projectResources(p.id).length?20:0)+(projectTasks(p.id).some(t=>t.baselineStart)?20:0)+20;}
+  function drawComplianceV12(id,p){if(!document.getElementById(id))return;drawRadar(id,'Governance Compliance Radar',['Budget','RAID','Team','Baseline','Reports','Model'],[projectBudgets(p.id).length?100:40,projectRisks(p.id).length?100:40,projectResources(p.id).length?100:40,projectTasks(p.id).some(t=>t.baselineStart)?100:55,100,canScrum(p)?(projectSprints(p.id).length?100:45):85],100);}
+  function drawDependencyNetworkV12(id,p){const el=document.getElementById(id);if(!el)return;const tasks=projectTasks(p.id).filter(t=>t.type!=='Summary').slice(0,10);if(!tasks.length){el.innerHTML='<div class="empty"><h3>No dependencies</h3></div>';return;}const w=700,h=360,cx=w/2,cy=h/2+12,r=118;let s=`<text x="36" y="28" fill="${cssVar('--text')}" font-size="14" font-weight="950">Dependency Network</text>`;const pts=tasks.map((t,i)=>({t,x:cx+r*Math.cos((i/tasks.length)*Math.PI*2),y:cy+r*Math.sin((i/tasks.length)*Math.PI*2)}));pts.forEach(a=>(a.t.deps||parseDeps(a.t.depText,tasks)).forEach(d=>{const b=pts.find(x=>x.t.id===d.predId);if(b)s+=`<line x1="${b.x}" y1="${b.y}" x2="${a.x}" y2="${a.y}" stroke="${cssVar('--muted')}" stroke-width="1.5" opacity=".55"/>`;}));pts.forEach((pnt,i)=>{const col=pnt.t.critical?cssVar('--danger'):COLORS[i%COLORS.length];s+=`<circle class="chartDot" data-tip="${esc(pnt.t.wbs+' '+pnt.t.name)}" cx="${pnt.x}" cy="${pnt.y}" r="16" fill="${col}" opacity=".90"/><text x="${pnt.x}" y="${pnt.y+4}" text-anchor="middle" fill="#fff" font-size="9" font-weight="950">${esc(String(pnt.t.wbs).slice(0,4))}</text>`;});el.innerHTML=svgWrap(s,w,h);}
+  function drawBurnupV12(id,p,sprint){const el=document.getElementById(id);if(!el||!sprint)return;const m=sprintMetrics(p.id,sprint.id),w=640,h=320,pad=54,total=Math.max(1,m.total);let ideal='',actual='',area='';for(let d=0;d<=m.days;d++){const x=pad+d*(w-pad*2)/Math.max(1,m.days),iv=total*(d/Math.max(1,m.days)),act=d<m.elapsed?Math.min(total,m.done*(d/Math.max(1,m.elapsed))):m.done;const y1=h-44-iv/total*(h-98),y2=h-44-act/total*(h-98);ideal+=(d?' L':'M')+x+','+y1;actual+=(d?' L':'M')+x+','+y2;area+=(d?' L':'M')+x+','+y2;}el.innerHTML=svgWrap(`<text x="${pad}" y="25" fill="${cssVar('--text')}" font-size="14" font-weight="950">Burnup - ${esc(sprint.name)}</text>${axis(w,h,pad,total)}<path d="${ideal}" fill="none" stroke="${cssVar('--muted')}" stroke-width="2" stroke-dasharray="6 5"/><path d="${actual}" fill="none" stroke="${cssVar('--accent')}" stroke-width="4" stroke-linecap="round"/><text x="${pad}" y="${h-14}" fill="${cssVar('--muted')}" font-size="10" font-weight="850">Completed ${m.done}/${m.total} pts</text>`,w,h);}
+  function drawCumulativeFlowV12(id,p){const el=document.getElementById(id);if(!el)return;const stories=projectStories(p.id),labels=['Backlog','To Do','In Progress','In Review','Done'],data=labels.map(st=>stories.filter(s=>s.status===st).length);drawStacked(id,'Cumulative Flow Snapshot',labels,[{name:'Story count',color:cssVar('--primary'),data:data},{name:'Story points',color:cssVar('--accent'),data:labels.map(st=>stories.filter(s=>s.status===st).reduce((a,s)=>a+(+s.points||0),0))}]);}
+
+  window.renderReportsView=renderReportsView=function(p){
+    const m=projectMetrics(p),budget=projectBudgets(p.id),people=projectResources(p.id),tasks=projectTasks(p.id).filter(t=>t.type!=='Summary'),stories=projectStories(p.id),risks=projectRisks(p.id);
+    const fixedCharts=canGantt(p)?chartCardV12('chartFloat','Critical Path Float',false)+chartCardV12('chartTaskDurationLollipop','Task Duration Lollipop',false)+chartCardV12('chartDependencyNetwork','Dependency Network',false)+chartCardV12('chartMilestoneTimeline','Milestone / Critical Finish Timeline',true):'';
+    const agileCharts=canScrum(p)?chartCardV12('chartSprintBurndownReport','Sprint Burndown',false)+chartCardV12('chartSprintBurnupReport','Sprint Burnup',false)+chartCardV12('chartVelocityReport','Velocity by Sprint',false)+chartCardV12('chartCumulativeFlowReport','Cumulative Flow',false):'';
+    return `<div class="stickyActions"><div class="downloadBar"><button class="btn primary" onclick="printProjectChartsPDF()">Download Project Report PDF</button><button class="btn" onclick="downloadProjectReportImages('png')">Download All Chart PNGs</button><button class="btn" onclick="downloadProjectReportImages('svg')">Download All Chart SVGs</button><button class="btn" onclick="navTo('budget')">Budget Section</button><button class="btn" onclick="navTo('resources')">Team Members</button>${canGantt(p)?`<button class="btn" onclick="navTo('gantt')">Gantt</button>`:''}${canScrum(p)?`<button class="btn" onclick="navTo('scrum')">Sprint Board</button>`:''}<button class="btn" onclick="navTo('ai')">AI Prediction</button></div></div><div class="grid two reportHeroV12"><div class="card"><div class="cardTitle"><h3>${esc(p.name)} - Project Report</h3>${modeBadge(p.mode)}</div><div class="hint">This report is scoped only to the selected project. Use All Projects Summary for consolidated reporting.</div><div class="miniMetricGrid" style="margin-top:12px"><div class="miniMetric"><div class="label">Work Completion</div><div class="value">${Math.round(m.progress)}%</div><div class="note">Task/story completion</div></div><div class="miniMetric"><div class="label">Health</div><div class="value">${m.health}%</div><div class="note">Delivery confidence</div></div><div class="miniMetric"><div class="label">SPI</div><div class="value">${m.spi.toFixed(2)}</div><div class="note">Schedule index</div></div><div class="miniMetric"><div class="label">CPI</div><div class="value">${m.cpi.toFixed(2)}</div><div class="note">Cost index</div></div><div class="miniMetric"><div class="label">Team</div><div class="value">${people.length}</div><div class="note">Selected resources</div></div><div class="miniMetric"><div class="label">Open Risks</div><div class="value">${m.openRisks.length}</div><div class="note">RAID exposure</div></div></div><div class="reportNote"><b>Report interpretation:</b> Work Completion shows how much work is complete. Delivery Health considers schedule, cost, risks, resource signals and sprint performance. When all project work is fully complete, the completion and health indicators show 100%.</div></div><div class="card"><div class="cardTitle"><h3>Report Navigation</h3><span class="eyebrow">Project details</span></div><div class="btnRow"><button class="btn" onclick="navTo('budget')">Budget</button><button class="btn" onclick="navTo('resources')">Team</button><button class="btn" onclick="navTo('raid')">RAID</button><button class="btn" onclick="navTo('ai')">AI Prediction</button></div><div class="hint" style="margin-top:12px">All sections refresh when you change the top project dropdown. Charts have hover tooltips and PNG/SVG export buttons.</div></div></div><div class="chartGrid projectReportV12">${chartCardV12('chartProjectGauge','Work Completion Gauge',false)}${chartCardV12('chartProjectHealth','Delivery Health Trend',true)}${chartCardV12('chartPMBOKRadar','PMBOK Performance Domain Radar',false)}${chartCardV12('chartCostCurveProject','Cost Curve: Planned vs Actual vs Forecast',true)}${chartCardV12('chartBudget2','Budget by Category',true)}${chartCardV12('chartBudgetWaterfallProject','Budget Waterfall',false)}${chartCardV12('chartWorkStatus','Work Status Distribution',false)}${chartCardV12('chartFlowStack','Fixed vs Agile Work Flow',false)}${chartCardV12('chartResource','Resource Capacity',false)}${chartCardV12('chartResourceTreemapProject','Team Cost Treemap',false)}${chartCardV12('chartTeamBubble','Team Load Bubble',false)}${chartCardV12('chartRiskBars','Risk Score Bars',false)}${chartCardV12('chartRiskHeatmapProject','Risk Heatmap',false)}${chartCardV12('chartRiskBubbleProject','Risk Probability x Impact Bubble',false)}${chartCardV12('chartIssueAging','Risk / Issue Aging',false)}${chartCardV12('chartQualityTrend','Quality and Completion Trend',false)}${fixedCharts}${agileCharts}${chartCardV12('chartGovernanceCompliance','Governance Compliance Radar',false)}${chartCardV12('chartProgressRadar','Project Control Radar',false)}</div><div class="grid two" style="margin-top:14px"><div class="card"><div class="cardTitle"><h3>Budget Detail</h3><span class="eyebrow">${esc(p.currency||'')}</span></div>${budget.length?`<div class="tableWrap"><table><thead><tr><th>Category</th><th>Item</th><th>Planned</th><th>Actual</th><th>Forecast</th></tr></thead><tbody>${budget.map(b=>`<tr><td>${esc(b.category)}</td><td>${esc(b.item)}</td><td class="mono">${money(b.planned,p.currency)}</td><td class="mono">${money(b.actual,p.currency)}</td><td class="mono">${money(b.forecast,p.currency)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="hint">No budget line items defined.</div>'}</div><div class="card"><div class="cardTitle"><h3>Team Members</h3><span class="eyebrow">Selected project team</span></div>${people.length?`<div class="tableWrap"><table><thead><tr><th>Name</th><th>Designation</th><th>Capacity</th><th>Rate</th></tr></thead><tbody>${people.map(r=>`<tr><td><b>${esc(r.name)}</b></td><td>${esc(r.designation||'')}</td><td>${pctBar(r.capacity||0)}</td><td class="mono">${money(r.rate,p.currency)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="hint">No team members selected.</div>'}</div></div><div class="grid two" style="margin-top:14px"><div class="card"><div class="cardTitle"><h3>Work Item Report</h3></div><div class="tableWrap"><table><thead><tr><th>Type</th><th>Name</th><th>Status</th><th>Progress / Points</th></tr></thead><tbody>${tasks.slice(0,18).map(t=>`<tr><td>WBS ${esc(t.wbs)}</td><td>${esc(t.name)}</td><td>${t.critical?'<span class="badge bRed">Critical</span>':statusBadge(t.percent>=100?'Done':t.percent>0?'In Progress':'Not Started')}</td><td>${pctBar(t.percent||0)}</td></tr>`).join('')}${stories.slice(0,18).map(s=>`<tr><td>Story</td><td>${esc(s.title)}</td><td>${statusBadge(s.status)}</td><td class="mono">${s.points||0} pts</td></tr>`).join('')}</tbody></table></div></div><div class="card"><div class="cardTitle"><h3>Risk Report</h3></div>${risks.length?`<div class="tableWrap"><table><thead><tr><th>Risk</th><th>Category</th><th>Score</th><th>Status</th></tr></thead><tbody>${risks.map(r=>{const sc=(+r.prob||0)*(+r.impact||0);return `<tr><td>${esc(r.title)}</td><td>${esc(r.category)}</td><td><span class="badge ${sc>=15?'bRed':sc>=8?'bWarn':'bGreen'}">${sc}</span></td><td>${statusBadge(r.status)}</td></tr>`}).join('')}</tbody></table></div>`:'<div class="hint">No risks logged.</div>'}</div></div>`;
+  };
+
+  window.drawGauge=drawGauge=function(id,title,value,max=100,suffix='%'){
+    const el=document.getElementById(id);if(!el)return;value=clamp(value,0,max);const w=420,h=320,cx=210,cy=198,r=104,pctVal=value/max,start=-210,end=30,ang=start+(end-start)*pctVal;
+    const arc=(a1,a2,color,cls='')=>{const p1=polar(cx,cy,r,a1),p2=polar(cx,cy,r,a2),large=Math.abs(a2-a1)>180?1:0;return `<path class="${cls}" d="M${p1.x},${p1.y} A${r},${r} 0 ${large} 1 ${p2.x},${p2.y}" fill="none" stroke="${color}" stroke-width="22" stroke-linecap="round"/>`;};
+    const marker=polar(cx,cy,r,ang),color=value>=80?cssVar('--accent'):value>=60?cssVar('--warn'):cssVar('--danger'),label=/completion/i.test(title)?'work completion':(suffix==='%'?'delivery confidence':'score');
+    let s=`<text x="28" y="28" fill="${cssVar('--text')}" font-size="14" font-weight="950">${esc(title)}</text>${arc(start,end,cssVar('--line2'))}${arc(start,ang,color,'chartArc')}<circle data-tip="${esc(title)}: ${fmt(value)}${suffix}" cx="${marker.x}" cy="${marker.y}" r="7" fill="${color}"/><text x="${cx}" y="190" text-anchor="middle" fill="${cssVar('--text')}" font-size="44" font-weight="950">${fmt(value)}</text><text x="${cx}" y="214" text-anchor="middle" fill="${cssVar('--muted')}" font-size="12" font-weight="900">${label}</text><text x="88" y="276" fill="${cssVar('--danger')}" font-size="10" font-weight="900">Risk</text><text x="190" y="276" fill="${cssVar('--warn')}" font-size="10" font-weight="900">Watch</text><text x="298" y="276" fill="${cssVar('--accent')}" font-size="10" font-weight="900">Healthy</text>`;
+    el.innerHTML=svgWrap(s,w,h);
+  };
+
+  window.drawReportCharts=drawReportCharts=function(p){
+    const m=projectMetrics(p),tasks=projectTasks(p.id).filter(t=>t.type!=='Summary'),risks=projectRisks(p.id),team=projectResources(p.id),stories=projectStories(p.id);
+    if(document.getElementById('chartProjectGauge'))drawGauge('chartProjectGauge','Work Completion Gauge',Math.round(m.progress),100,'%');
+    if(document.getElementById('chartProjectHealth'))drawArea('chartProjectHealth','Delivery Health Trend',['W-5','W-4','W-3','W-2','W-1','Now'],confidenceTrend(m.health),'Health %',100);
+    if(document.getElementById('chartPMBOKRadar'))drawRadar('chartPMBOKRadar','PMBOK Performance Domains',['Scope','Schedule','Cost','Quality','Resources','Risk','Governance'],[m.progress,clamp(m.spi*100,0,100),clamp(m.cpi*100,0,100),qualityScoreV12(p),team.length?80:45,clamp(100-risks.filter(r=>r.status!=='Closed').length*10,0,100),governanceScoreV12(p)].map(x=>Math.round(x)),100);
+    if(document.getElementById('chartCostCurveProject')){const c=projectCostCurve(p,m);drawMultiLine('chartCostCurveProject','Cost Curve: Planned vs Actual vs Forecast',c.labels,c.series);}
+    if(document.getElementById('chartBudget2'))drawBudget('chartBudget2',p);
+    if(document.getElementById('chartBudgetWaterfallProject'))drawWaterfall('chartBudgetWaterfallProject','Budget Waterfall',[{label:'Planned',value:m.planned,absolute:true},{label:'Actual used',value:-m.actual},{label:'Forecast left',value:m.forecast-m.actual},{label:'Variance',value:m.planned-m.forecast}]);
+    const status=countBy([...tasks.map(t=>({s:t.percent>=100?'Done':t.percent>0?'In Progress':'Not Started'})),...stories.map(s=>({s:s.status}))],x=>x.s);
+    if(document.getElementById('chartWorkStatus'))drawDonut('chartWorkStatus','Work Status',status);
+    if(document.getElementById('chartFlowStack')){const data=projectStackData(p);drawStacked('chartFlowStack','Fixed vs Agile Work Flow',data.labels,data.series);}
+    if(document.getElementById('chartResource'))drawHorizontalBar('chartResource','Team Capacity',team.map(r=>r.name),team.map(r=>r.capacity||0),'Capacity %');
+    if(document.getElementById('chartResourceTreemapProject'))drawTreemap('chartResourceTreemapProject','Team Cost Treemap',team.map((r,i)=>({label:r.name,value:+r.rate||1,color:COLORS[i%COLORS.length],tip:`${r.name} daily rate ${fmt(r.rate||0)} capacity ${r.capacity||0}%`})));
+    if(document.getElementById('chartTeamBubble'))drawBubble('chartTeamBubble','Team Utilization vs Cost',team.map((r,i)=>({label:r.name,x:resourceLoad(r.id),y:+r.rate||0,r:8+(String(r.skills||'').split(',').filter(Boolean).length*2),color:COLORS[i%COLORS.length],tip:`${r.name} Utilization ${resourceLoad(r.id)}% Rate ${fmt(r.rate||0)}`})),{xLabel:'Utilization %',yLabel:'Daily rate'});
+    if(document.getElementById('chartRiskBars'))drawBar('chartRiskBars','Risk Scores',risks.map(r=>r.category||r.title),risks.map(r=>(+r.prob||0)*(+r.impact||0)),'Risk score');
+    if(document.getElementById('chartRiskHeatmapProject'))drawRiskHeatmap('chartRiskHeatmapProject','Project Risk Heatmap',risks);
+    if(document.getElementById('chartRiskBubbleProject'))drawBubble('chartRiskBubbleProject','Risk Probability x Impact Bubble',risks.map((r,i)=>({label:r.category||r.title,x:+r.prob||0,y:+r.impact||0,r:7+(+r.prob||0)*(+r.impact||0)/1.5,color:(+r.prob||0)*(+r.impact||0)>=15?cssVar('--danger'):(+r.prob||0)*(+r.impact||0)>=8?cssVar('--warn'):cssVar('--accent'),tip:`${r.title} P${r.prob} I${r.impact} score ${(+r.prob||0)*(+r.impact||0)}`})),{xLabel:'Probability',yLabel:'Impact'});
+    if(document.getElementById('chartIssueAging'))drawHorizontalBar('chartIssueAging','Risk / Issue Aging',risks.map(r=>r.title||r.category),risks.map(r=>r.dueDate?Math.max(0,toDay(today())-toDay(r.dueDate)):0),'Days past due');
+    if(document.getElementById('chartQualityTrend'))drawArea('chartQualityTrend','Quality and Completion Trend',['Start','Plan','Build','Test','Now'],[55,64,72,qualityScoreV12(p)-5,qualityScoreV12(p)].map(x=>clamp(x,0,100)),'Quality %',100);
+    if(document.getElementById('chartFloat'))drawBar('chartFloat','Critical Path Float',tasks.map(t=>t.wbs),tasks.map(t=>t.float||0),'Float days');
+    if(document.getElementById('chartTaskDurationLollipop'))drawLollipop('chartTaskDurationLollipop','Task Duration Lollipop',tasks.slice(0,14).map(t=>t.wbs),tasks.slice(0,14).map(t=>t.duration||durDays(t.startDate,t.finishDate)),'Duration days');
+    if(document.getElementById('chartDependencyNetwork'))drawDependencyNetworkV12('chartDependencyNetwork',p);
+    if(document.getElementById('chartMilestoneTimeline'))drawTimeline('chartMilestoneTimeline','Milestone / Critical Finish Timeline',tasks.filter(t=>t.type==='Milestone'||t.critical).map(t=>({label:t.wbs+' '+t.name,date:t.finishDate,color:t.critical?cssVar('--danger'):cssVar('--primary'),tip:`${t.wbs} ${t.name} ${t.critical?'critical path':'milestone'}`})));
+    const sp=selectedSprintForProject(p.id)||activeSprint(p.id);
+    if(document.getElementById('chartSprintBurndownReport')){if(sp)drawBurndown('chartSprintBurndownReport',p,sp);else document.getElementById('chartSprintBurndownReport').innerHTML='<div class="empty"><h3>No sprint selected</h3></div>';}
+    if(document.getElementById('chartSprintBurnupReport')){if(sp)drawBurnupV12('chartSprintBurnupReport',p,sp);else document.getElementById('chartSprintBurnupReport').innerHTML='<div class="empty"><h3>No sprint selected</h3></div>';}
+    if(document.getElementById('chartVelocityReport'))drawVelocity('chartVelocityReport',p);
+    if(document.getElementById('chartCumulativeFlowReport'))drawCumulativeFlowV12('chartCumulativeFlowReport',p);
+    if(document.getElementById('chartGovernanceCompliance'))drawComplianceV12('chartGovernanceCompliance',p);
+    if(document.getElementById('chartProgressRadar'))drawRadar('chartProgressRadar','Project Control Radar',['Schedule','Cost','Scope','Risk','Team','Quality'],[clamp(m.spi*100,0,100),clamp(m.cpi*100,0,100),m.progress,clamp(100-risks.length*12,0,100),team.length?80:40,qualityScoreV12(p)].map(x=>Math.round(x)),100);
+  };
+
+  function getSvgFromHost(id){const host=document.getElementById(id);if(!host)return null;if(host.tagName&&host.tagName.toLowerCase()==='svg')return host;return host.querySelector('svg');}
+  function serializeSvg(svg){const copy=svg.cloneNode(true);copy.setAttribute('xmlns','http://www.w3.org/2000/svg');const w=copy.getAttribute('width')||copy.viewBox?.baseVal?.width||900;const h=copy.getAttribute('height')||copy.viewBox?.baseVal?.height||500;copy.setAttribute('width',w);copy.setAttribute('height',h);return new XMLSerializer().serializeToString(copy);}
+  window.downloadChartSvg=function(id,name){const svg=getSvgFromHost(id);if(!svg){toast('Chart is not available to download','err');return;}const blob=new Blob([serializeSvg(svg)],{type:'image/svg+xml;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=safeNameV12(name||id)+'.svg';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1200);};
+  window.downloadChartPng=function(id,name){const svg=getSvgFromHost(id);if(!svg){toast('Chart is not available to download','err');return;}const raw=serializeSvg(svg);const img=new Image();const blob=new Blob([raw],{type:'image/svg+xml;charset=utf-8'});const url=URL.createObjectURL(blob);img.onload=function(){const vb=svg.viewBox&&svg.viewBox.baseVal;const width=parseInt(svg.getAttribute('width')||vb?.width||900,10),height=parseInt(svg.getAttribute('height')||vb?.height||500,10);const scale=2;const canvas=document.createElement('canvas');canvas.width=width*scale;canvas.height=height*scale;const ctx=canvas.getContext('2d');ctx.fillStyle=getComputedStyle(document.body).getPropertyValue('--panel')||'#ffffff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);URL.revokeObjectURL(url);canvas.toBlob(function(png){const a=document.createElement('a');a.href=URL.createObjectURL(png);a.download=safeNameV12(name||id)+'.png';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1500);},'image/png');};img.onerror=function(){URL.revokeObjectURL(url);toast('Unable to export chart image','err');};img.src=url;};
+  window.downloadProjectReportImages=function(type){const charts=REPORT_CHARTS_V12.filter(([id])=>getSvgFromHost(id));if(!charts.length){toast('No charts available on this page','err');return;}charts.forEach(([id,name],i)=>setTimeout(()=>type==='svg'?downloadChartSvg(id,name):downloadChartPng(id,name),i*260));toast('Starting '+charts.length+' chart download(s). Browser may ask to allow multiple downloads.','ok');};
+  window.downloadGanttImage=function(){downloadChartPng('ganttSvgHost','selected_project_gantt_chart');};
+
+  const prevAfterRender=afterRender;
+  window.afterRender=afterRender=function(){
+    if(state.view==='gantt')drawGantt();
+    drawChartsForView();
+    if(state.view==='gantt')syncGanttScrollV12();
+  };
+  render();
+})();
+</script>
+
 </body>
 </html>
